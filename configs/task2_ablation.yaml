@@ -1,59 +1,56 @@
-# Task 2: Muon Ablation Study Configuration
-
+# Task 2: Muon component ablation config
 experiment:
   name: "task2_ablation"
   seed: 42
-  device: "cuda"  # or "cpu"
+  device: "auto"
 
 dataset:
-  name: "mnist"  # or "cifar10", "toy"
+  name: "mnist"
   root: "./data"
-  batch_size: null  # null for full-batch training
+  full_batch: true
+  train_subset_size: 10000   # optional: speeds curvature; remove for full MNIST
 
 model:
   type: "mlp"
-  input_size: 784  # 28*28 for MNIST
-  hidden_sizes: [128, 64]
-  num_classes: 10
+  config:
+    input_size: 784
+    hidden_sizes: [128, 64]
+    num_classes: 10
+    dropout: 0.0
 
 training:
   num_epochs: 100
   loss_fn: "cross_entropy"
-  base_lr: 0.01
 
+curvature:
+  track: true
+  frequency: 5
+  max_iter: 50
+  tol: 1e-6
+
+logging:
+  wandb:
+    enabled: true
+  save_dir: "./results/task2"
+  save_frequency: 10
+
+# Shared defaults for every Muon run
+muon_base_config:
+  lr: 0.02
+  momentum: 0.95
+  adamw_lr: 0.001
+
+# Ablation definition
 ablation:
-  # Base Muon configuration
-  base:
-    ns_depth: 1
-    use_rms: true
-    use_orthogonalization: true
-    weight_decay: 0.0
-  
-  # Variants to test
-  variants:
-    - name: "no_rms"
-      ns_depth: 1
-      use_rms: false
-      use_orthogonalization: true
-      weight_decay: 0.0
-    
-    - name: "no_orthogonalization"
-      ns_depth: 1
-      use_rms: true
-      use_orthogonalization: false
-      weight_decay: 0.0
-    
-    - name: "ns_depth_2"
-      ns_depth: 2
-      use_rms: true
-      use_orthogonalization: true
-      weight_decay: 0.0
-    
-    - name: "with_weight_decay"
-      ns_depth: 1
-      use_rms: true
-      use_orthogonalization: true
-      weight_decay: 0.01
+  # Use preset variants (cleaner than full 2^k grid)
+  variants: ["full", "no_ortho", "no_rms", "rms_only", "ortho_only", "none"]
+
+  # Vary NS depth (0 disables orthogonalization anyway)
+  ns_depth: [0, 1, 3, 5, 7]
+
+  # Vary weight decay
+  weight_decay: [0.0, 0.01]
+
 
 metrics:
   track_loss: true

@@ -295,21 +295,22 @@ def main():
     
     # Create run name (used for both wandb and directory)
     exp_name = exp_config.get("name", "training")
-    name_parts = exp_name.split("_")
+    # Truncated name 
+    '''name_parts = exp_name.split("_")
     if len(name_parts) >= 2:
         prefix = "_".join(name_parts[:2])  # e.g., "basic_training", "task_1"
     elif len(name_parts) == 1:
         prefix = name_parts[0]
     else:
-        prefix = "basic_training"  # Default prefix
+        prefix = "basic_training"  # Default prefix '''
     
     model_type = model_config.get("type", "unknown")
     dataset_name = dataset_config.get("name", "unknown")
     optimizer_type = optimizer_config.get("type", "unknown")
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now().strftime('%m%d_%H%M')
     
     # Create run name with format: {prefix}_{model}_{dataset}_{optimizer}_{timestamp}
-    run_name = f"{prefix}_{model_type}_{dataset_name}_{optimizer_type}_{timestamp}"
+    run_name = f"{exp_name}_{model_type}_{dataset_name}_{optimizer_type}_{timestamp}"
     
     # Initialize wandb
     wandb_config = logging_config.get("wandb", {})

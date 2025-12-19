@@ -57,3 +57,4 @@ Thumbs.db
 # Environment files (keep templates, ignore local)
 .env
 .env.local
+.venv/
