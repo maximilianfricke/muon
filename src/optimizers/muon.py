@@ -12,6 +12,7 @@ matrix. For efficient orthogonalization we use a Newton-Schulz iteration.
 import torch
 from torch.optim import Optimizer
 from typing import Optional
+from typing import List, Tuple
 
 
 def zeropower_via_newtonschulz5(G, steps: int):
@@ -178,5 +179,51 @@ class Muon(Optimizer):
                 
                 # Apply update
                 p.add_(update.reshape(p.shape), alpha=-group["lr"])
-        
+
         return loss
+    
+    @torch.no_grad()
+    def _ensure_state(self, p: torch.Tensor):
+        state = self.state[p]
+        if len(state) == 0:
+            state["momentum_buffer"] = torch.zeros_like(p)
+        return state
+
+    @torch.no_grad()
+    def compute_update_direction(self) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Return Muon's *preconditioned update direction* u_t for each parameter,
+        WITHOUT modifying parameters (no weight decay, no lr step).
+
+        Returns:
+            list of (param, update_tensor) where update_tensor has same shape as param.
+        """
+        outs: List[Tuple[torch.Tensor, torch.Tensor]] = []
+
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None:
+                    continue
+
+                state = self._ensure_state(p)
+
+                # IMPORTANT: muon_update mutates its `grad` argument via lerp_.
+                # So we must pass a copy.
+                g = p.grad.detach()
+                g_work = g.clone()
+
+                u = muon_update(
+                    g_work,
+                    state["momentum_buffer"],
+                    beta=group["momentum"],
+                    ns_steps=group["ns_depth"],
+                    nesterov=group["nesterov"],
+                    use_orthogonalization=group["use_orthogonalization"],
+                    use_rms=group["use_rms"],
+                )
+
+                # muon_update may reshape conv grads; return in param shape
+                outs.append((p, u.reshape(p.shape).detach().clone()))
+
+        return outs
+
