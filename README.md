@@ -1,6 +1,46 @@
-# Muon Optimizer Research Project
+# Muon Optimizer Research Project: Sharpness, Curvature and Edge-of-Stability Analysis 
 
-Research project on the Muon optimizer with experiments tracking sharpness, ablations, Edge-of-Stability analysis and more
+This repository contains a structured experimental study of **optimization geometry and stability**
+for deep learning optimizers, with a particular focus on the **Muon optimizer**.
+The project investigates how curvature, sharpness, and Edge-of-Stability (EoS) behavior
+differ between Muon and standard optimizers such as **SGD** and **AdamW**.
+
+The experiments are organized into three main tasks:
+
+- **Task 1 – Sharpness Tracking**  
+  Track the largest Hessian eigenvalue λ_max(H_t) during full-batch training.
+
+- **Task 2 – Muon Ablation Study**  
+  Analyze how individual Muon components (NS depth, RMS normalization,
+  orthogonalization, weight decay) affect curvature suppression and effective sharpness.
+
+- **Task 3 – Edge-of-Stability (EoS)**  
+  Study the EoS quantity η · λ_max(H_t) during training and relate it to optimizer stability.
+  (For preconditioned optimizers, this serves as a baseline before introducing H_eff.)
+
+All experiments are run in **full-batch mode** to make curvature estimation reliable.
+
+### Common setup
+
+We optimize parameters θ by minimizing the empirical loss:
+
+\[
+\mathcal{L}(\theta) \;=\; \frac{1}{N}\sum_{i=1}^{N}\ell(f_\theta(x_i), y_i)
+\]
+
+For a given epoch \(t\), define the (full-batch) Hessian of the loss:
+
+\[
+H_t \;=\; \nabla^2_\theta \mathcal{L}(\theta_t)
+\]
+
+We track **sharpness** via the largest eigenvalue:
+
+\[
+\lambda_{\max}(H_t)
+\]
+
+In code, this is computed by **power iteration** using Hessian-vector products (HVPs), either via `curvlinops` or pure PyTorch autograd (`src/geometry/hessian.py`).
 
 ## Quick Setup
 
@@ -22,39 +62,53 @@ python verify_setup.py
 wandb login 
 ```
 
+## Repository Structure
 
-## Project Structure
-
-```
-muon/
-├── src/
-│   ├── models/          # MLP, TinyViT
-│   ├── optimizers/      # Muon optimizer
-│   ├── geometry/        # Hessian/curvature computation
-│   ├── utils/           # Data loading, training, visualization
-│   └── experiments/     # Training scripts
-├── configs/             # YAML config files
-├── results/             # Training results (organized by run name)
-└── environment.yml      # Conda environment
-```
-
-## Results Organization
-
-Each run creates its own directory:
-```
-results/basic_training/
-  {run_name}/
-    ├── {run_name}_results.pt          # Model + history
-    ├── {run_name}_config.yaml         # Config used
-    ├── {run_name}_lambda_max.csv      # Curvature data
-    ├── {run_name}_subset_indices.txt  # Subset indices (if used)
-    ├── checkpoint_epoch_*.pt          # Checkpoints
-    └── visualizations/
-        ├── {run_name}_training_history.png
-        ├── {run_name}_lambda_max.png
-        ├── {run_name}_predictions.png
-        └── {run_name}_confusion_matrix.png
-```
+```text
+.
+├── src                         # Core source code
+│   ├── experiments             # Experiment entry points
+│   │   ├── basic_training.py   # Shared training + logging loop
+│   │   ├── task1_sharpness.py  # Task 1: λ_max(H_t) tracking
+│   │   ├── task2_ablation.py   # Task 2: Muon ablation study
+│   │   └── task3_eos.py        # Task 3: Edge-of-Stability analysis
+│   ├── geometry                # Curvature and Hessian utilities
+│   │   ├── curvature.py
+│   │   └── hessian.py
+│   ├── models                  # Model definitions
+│   │   ├── mlp.py
+│   │   └── tiny_vit.py
+│   ├── optimizers              # Optimizer implementations
+│   │   └── muon.py
+│   └── utils                   # Data, training, and visualization helpers
+│       ├── data.py
+│       ├── training.py
+│       └── visualization.py
+│
+├── configs                     # Fully reproducible experiment configs
+│   ├── basic_training_mlp_mnist.yaml
+│   ├── basic_training_vit_cifar10.yaml
+│   ├── task1_sharpness.yaml
+│   ├── task2_ablation.yaml
+│   └── task3_eos.yaml
+│
+├── results                     # Saved outputs and visualizations
+│   ├── basic_training
+│   │   └── basic_training_*_{adamw,sgd,muon}
+│   ├── task1
+│   │   └── task1_sharpness_*_{adamw,sgd,muon}
+│   ├── task2
+│   │   └── t2_*_mlp_mnist_muon_*      # Muon ablation runs
+│   └── task3
+│       ├── task3_eos__gd__*
+│       ├── task3_eos__adamw__*
+│       └── task3_eos__muon__*
+│
+├── data                        # Datasets (downloaded automatically)
+├── wandb                       # Weights & Biases run logs (optional)
+├── environment.yml             # Conda environment
+├── setup.sh
+└── README.md
 
 ## Wandb Integration
 
@@ -154,9 +208,177 @@ This will:
 
 **Note**: Task 1 uses `basic_training.py` internally - it just runs it multiple times with different optimizers. The curvature tracking is enabled in the Task 1 config.
 
-## Future Experiments
+## Task 1 — Sharpness trajectories across optimizers
 
-- **Task 2**: Ablation studies (Muon components)
-- **Task 3**: Edge-of-Stability analysis
+**Goal:** Compare how sharpness evolves during training for:
+- **SGD** (or GD when momentum=0)
+- **AdamW**
+- **Muon** (Muon on 2D weights + AdamW on biases / non-matrix params)
 
-All use the same `basic_training.py` script with different configs.
+**What runs:** `src/experiments/task1_sharpness.py`  
+It creates a temporary config per optimizer and calls:
+`python -m src.experiments.basic_training --config <temp.yaml>`
+
+**What is logged/visualized (from `basic_training.py`):**
+- Train/test loss and accuracy per epoch
+- **Sharpness** \(\lambda_{\max}(H_t)\) tracked every `curvature.frequency` epochs
+- For Muon runs, additional directional curvatures (see below)
+
+**Sharpness definition (what the plot shows):**
+- In plots/labels: `λ_max` is **always** shorthand for:
+  \[
+  \lambda_{\max}(H_t)
+  \]
+  i.e., largest eigenvalue of the full-batch Hessian at epoch \(t\).
+
+**How λ_max is computed (matches `compute_lambda_max`)**
+Power iteration with normalized vectors \(v\):
+\[
+v_{k+1} \leftarrow \frac{H_t v_k}{\|H_t v_k\|}, \qquad
+\lambda \approx v_k^\top H_t v_k
+\]
+where \(H_t v\) is computed via an HVP routine.
+
+---
+
+## Task 2 — Muon ablations + effective curvature diagnostics
+
+**Goal:** Understand which Muon components matter by sweeping:
+- `ns_depth ∈ {0,1,3,5,7}`
+- `use_rms ∈ {True, False}`
+- `use_orthogonalization ∈ {True, False}`
+- `weight_decay ∈ {0.0, 0.01}`
+- plus preset bundles (`full`, `no_rms`, `no_ortho`, `none`) depending on config.
+
+**What runs:** `src/experiments/task2_ablation.py`  
+It generates variant configs and calls `basic_training.py` for each.
+
+### Task 2 curvature quantities (what the code logs)
+
+Task 2 goes beyond \(\lambda_{\max}(H_t)\) and tracks **directional Rayleigh quotients**:
+
+\[
+\lambda(d) \;=\; \frac{d^\top H_t d}{d^\top d}
+\]
+
+This is exactly what `compute_directional_curvature()` implements.
+
+We log three specific directions:
+
+#### 1) Sharpness (global)
+\[
+\lambda_{\max}(H_t)
+\]
+computed by power iteration (`compute_lambda_max`).
+
+#### 2) Gradient-direction curvature: `lambda_grad`
+\[
+\lambda_{\text{grad}}(t) \;=\; \lambda(g_t)
+\;=\; \frac{g_t^\top H_t g_t}{g_t^\top g_t}
+\quad\text{where}\quad g_t = \nabla_\theta \mathcal{L}(\theta_t)
+\]
+Computed in `compute_lambda_grad()` by flattening the full gradient vector and applying the Rayleigh quotient.
+
+Interpretation: **how curved the loss is in the direction SGD would move.**
+
+#### 3) Muon-update curvature: `lambda_muon` (a.k.a. λ_eff)
+Muon produces a *preconditioned* update direction \(u_t\) (before applying LR):
+\[
+u_t \;=\; \text{MuonUpdate}(g_t; \text{momentum, NS, RMS, ortho})
+\]
+
+Then we compute:
+\[
+\lambda_{\text{Muon}}(t) \;=\; \lambda(u_t)
+\;=\; \frac{u_t^\top H_t u_t}{u_t^\top u_t}
+\]
+This is `compute_lambda_muon()`.
+
+**Important nuance:**  
+For hybrid Muon+AdamW runs, `lambda_muon` is computed using a direction vector where:
+- Muon-handled parameters use their Muon update
+- non-Muon parameters contribute **0** to the direction vector  
+So it measures curvature **specific to Muon’s mechanism** on matrix weights.
+
+#### 4) Ratio: `lambda_eff_ratio`
+\[
+\text{ratio}(t) \;=\; \frac{\lambda_{\text{Muon}}(t)}{\lambda_{\text{grad}}(t)}
+\]
+This is our “curvature suppression / rotation” proxy:
+- ratio < 1 suggests Muon update points into **flatter** directions than the raw gradient
+- ratio ≪ 1 suggests strong curvature avoidance / preconditioning effect
+
+**What we plot in Task 2:**
+- A standard `lambda_max.png`
+- A combined Task2 plot (`task2_lambdas.png`) with:
+  - \(\lambda_{\max}(H_t)\)
+  - \(\lambda_{\text{grad}}\)
+  - \(\lambda_{\text{Muon}}\)
+  - and the ratio (often best on a second axis or log scale)
+
+---
+
+## Task 3 — Edge-of-Stability diagnostics (baseline + curvature probes)
+
+**Goal:** Track an Edge-of-Stability style signal during full-batch training, plus a lightweight curvature summary.
+
+**What runs:** `src/experiments/task3_eos.py`  
+It can run multiple optimizers from the `optimizers:` section in the YAML, producing one W&B run per optimizer.
+
+### (A) Baseline EoS quantity we compute
+
+For non-preconditioned methods (GD/SGD), the classic proxy is:
+
+\[
+\text{EoS}(t) \;=\; \eta \cdot \lambda_{\max}(H_t)
+\]
+
+That is exactly what our code logs for `gd`/`sgd`:
+- `lambda_max = λ_max(H_t)`
+- `eos_value = lr * lambda_max`
+
+#### Preconditioned case: what is “correct” vs what we log
+For AdamW/Muon, the stability-relevant quantity should use an **effective/preconditioned Hessian**:
+
+\[
+H_{\text{eff},t} \;=\; P_t^{-1/2}\, H_t\, P_t^{-1/2}
+\quad\Rightarrow\quad
+\text{EoS}_\text{eff}(t) = \eta\cdot \lambda_{\max}(H_{\text{eff},t})
+\]
+
+Our current experiment **intentionally logs the baseline**:
+\[
+\text{EoS}_\text{baseline}(t) \;=\; \eta\cdot \lambda_{\max}(H_t)
+\]
+for *all* optimizers, and labels AdamW/Muon runs as “baseline (H_eff not computed yet)”.
+
+This still makes sense as a diagnostic: it tracks the **raw Hessian geometry** independently of any preconditioning effects.
+
+### (B) Directional curvature probes (random Rayleigh quotients)
+
+Task 3 additionally computes random-direction Rayleigh quotients:
+
+\[
+\lambda(v) \;=\; \frac{v^\top H_t v}{v^\top v}
+\quad \text{for random } v
+\]
+
+We sample `num_probe_vecs` random unit vectors and log:
+- `dircurv_mean`
+- `dircurv_min`
+- `dircurv_max`
+
+This provides a cheap curvature summary beyond just \(\lambda_{\max}\), and helps sanity-check whether sharpness is driven by an extreme outlier direction or a broader spectrum shift.
+
+---
+
+### Where the math lives in code
+
+- **Hessian-vector product + λ_max power iteration:** `src/geometry/hessian.py`
+- **Directional curvature / Rayleigh quotients:**
+  - `lambda_grad`: `compute_lambda_grad()` in `src/geometry/curvature.py`
+  - `lambda_muon`: `compute_lambda_muon()` in `src/geometry/curvature.py`
+- **Muon update direction (the \(u_t\) used for λ_Muon):**
+  - `Muon.compute_update_direction()` in `src/optimizers/muon.py`
+  - uses `muon_update()` with optional orthogonalization (Newton–Schulz) and RMS scaling.
+
