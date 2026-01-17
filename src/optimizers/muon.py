@@ -12,7 +12,7 @@ matrix. For efficient orthogonalization we use a Newton-Schulz iteration.
 import torch
 from torch.optim import Optimizer
 from typing import Optional
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 
 def zeropower_via_newtonschulz5(G, steps: int):
@@ -36,7 +36,7 @@ def zeropower_via_newtonschulz5(G, steps: int):
     
     a, b, c = (3.4445, -4.7750, 2.0315)
     
-    X = G.bfloat16()
+    X = G.float()
     
     if G.size(-2) > G.size(-1):
         X = X.mT
@@ -53,45 +53,66 @@ def zeropower_via_newtonschulz5(G, steps: int):
     if G.size(-2) > G.size(-1):
         X = X.mT
     
-    return X
+    return X.to(G.dtype)
 
+def muon_update(
+    grad,
+    momentum,
+    beta=0.95,
+    ns_steps=5,
+    nesterov=True,
+    use_orthogonalization=True,
+    use_rms=False,
+    debug=False,
+):
+    g = grad.detach()
+    momentum.lerp_(g, 1 - beta)
+    update = g.lerp(momentum, beta) if nesterov else momentum
 
-def muon_update(grad, momentum, beta=0.95, ns_steps=5, nesterov=True, use_orthogonalization=True, use_rms=False):
-    """
-    Compute Muon update direction.
-    
-    Args:
-        grad: Gradient tensor
-        momentum: Momentum buffer
-        beta: Momentum coefficient
-        ns_steps: Number of Newton-Schulz steps
-        nesterov: Whether to use Nesterov momentum
-        use_orthogonalization: Whether to apply orthogonalization
-        use_rms: Whether to apply RMS normalization (for ablation)
-        
-    Returns:
-        Update direction tensor
-    """
-    momentum.lerp_(grad, 1 - beta)
-    update = grad.lerp_(momentum, beta) if nesterov else momentum
-    
-    if update.ndim == 4:  # for the case of conv filters
+    # DBG: norms before anything 
+    grad_norm = g.norm()
+    upd_norm_pre = update.norm()
+
+    if update.ndim == 4:
         update = update.view(len(update), -1)
-    
+
+    upd_norm_pre_ortho = update.norm()
+
     if use_orthogonalization:
         update = zeropower_via_newtonschulz5(update, steps=ns_steps)
-    
-    # Scaling factor (original Muon behavior)
-    scale = max(1, grad.size(-2) / grad.size(-1))**0.5
-    
-    # RMS normalization (for ablation study)
+
+    upd_norm_post_ortho = update.norm()
+
+    # Base Muon scale (make it a tensor so debug always works)
+    m, n = update.size(-2), update.size(-1)
+    base_scale_float = max(1.0, m / n) ** 0.5
+    base_scale = update.new_tensor(base_scale_float)  # tensor on correct device/dtype
+
+    # RMS normalization
+    rms = None
     if use_rms:
-        rms = update.norm(dim=(-2, -1), keepdim=True) / (update.size(-2) * update.size(-1))**0.5
-        scale = scale / (rms + 1e-7)
-    
-    update = update * scale
-    
+        rms = update.norm(dim=(-2, -1), keepdim=True) / ((m * n) ** 0.5)
+        eff_scale = base_scale / (rms + 1e-7)  # tensor
+    else:
+        eff_scale = base_scale  # tensor
+
+    update = update * eff_scale
+
+    if debug:
+        dbg = {
+            "grad_norm": float(grad_norm),
+            "upd_norm_pre": float(upd_norm_pre),
+            "upd_norm_pre_ortho": float(upd_norm_pre_ortho),
+            "upd_norm_post_ortho": float(upd_norm_post_ortho),
+            "base_scale": float(base_scale),
+            "rms": float(rms.mean()) if rms is not None else float("nan"),
+            "eff_scale": float(eff_scale.mean()),
+        }
+        return update, dbg
+
     return update
+
+
 
 
 class Muon(Optimizer):
@@ -135,6 +156,7 @@ class Muon(Optimizer):
             nesterov=nesterov
         )
         super().__init__(params, defaults)
+
         
     @torch.no_grad()
     def step(self, closure=None):
@@ -159,25 +181,49 @@ class Muon(Optimizer):
                 
                 state = self.state[p]
                 
-                # Initialize momentum buffer
                 if len(state) == 0:
                     state["momentum_buffer"] = torch.zeros_like(p)
                 
                 # Compute Muon update
-                update = muon_update(
+                update, dbg = muon_update(
                     p.grad,
                     state["momentum_buffer"],
                     beta=group["momentum"],
                     ns_steps=group["ns_depth"],
                     nesterov=group["nesterov"],
                     use_orthogonalization=group["use_orthogonalization"],
-                    use_rms=group["use_rms"]
+                    use_rms=group["use_rms"],
+                    debug=True,   # DBG
                 )
-                
+
+                # DBG 
+                dbg_state = self.state.setdefault(
+                    "_dbg",
+                    {"t": 0, "sum_rms": 0.0, "sum_scale": 0.0, "sum_upd": 0.0, "cnt": 0},
+                )
+
+                dbg_state["t"] += 1
+                dbg_state["sum_rms"] += dbg["rms"]
+                dbg_state["sum_scale"] += dbg["eff_scale"]
+                dbg_state["sum_upd"] += dbg["upd_norm_post_ortho"]
+                dbg_state["cnt"] += 1
+
+                if dbg_state["t"] % 100 == 0:
+                    c = max(1, dbg_state["cnt"])
+                    print(
+                        f"[MUON DBG] step={dbg_state['t']} | "
+                        f"use_rms={group['use_rms']} "
+                        f"use_ortho={group['use_orthogonalization']} "
+                        f"ns={group['ns_depth']} | "
+                        f"avg_rms={dbg_state['sum_rms']/c:.4f} "
+                        f"avg_eff_scale={dbg_state['sum_scale']/c:.4f} "
+                        f"avg_upd_norm={dbg_state['sum_upd']/c:.4f}"
+                    )
+                    dbg_state["sum_rms"] = dbg_state["sum_scale"] = dbg_state["sum_upd"] = 0.0
+                    dbg_state["cnt"] = 0
+
                 # Apply weight decay (AdamW-style)
                 p.mul_(1 - group["lr"] * group["weight_decay"])
-                
-                # Apply update
                 p.add_(update.reshape(p.shape), alpha=-group["lr"])
 
         return loss
@@ -189,29 +235,17 @@ class Muon(Optimizer):
             state["momentum_buffer"] = torch.zeros_like(p)
         return state
 
-    @torch.no_grad()
-    def compute_update_direction(self) -> List[Tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Return Muon's *preconditioned update direction* u_t for each parameter,
-        WITHOUT modifying parameters (no weight decay, no lr step).
 
-        Returns:
-            list of (param, update_tensor) where update_tensor has same shape as param.
-        """
-        outs: List[Tuple[torch.Tensor, torch.Tensor]] = []
+    @torch.no_grad()
+    def compute_update_direction(self) -> Dict[torch.nn.Parameter, torch.Tensor]:
+        update_map: Dict[torch.nn.Parameter, torch.Tensor] = {}
 
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is None:
                     continue
-
                 state = self._ensure_state(p)
-
-                # IMPORTANT: muon_update mutates its `grad` argument via lerp_.
-                # So we must pass a copy.
-                g = p.grad.detach()
-                g_work = g.clone()
-
+                g_work = p.grad.detach().clone()
                 u = muon_update(
                     g_work,
                     state["momentum_buffer"],
@@ -221,9 +255,8 @@ class Muon(Optimizer):
                     use_orthogonalization=group["use_orthogonalization"],
                     use_rms=group["use_rms"],
                 )
+                update_map[p] = u.reshape(p.shape).detach().clone()
 
-                # muon_update may reshape conv grads; return in param shape
-                outs.append((p, u.reshape(p.shape).detach().clone()))
+        return update_map
 
-        return outs
 

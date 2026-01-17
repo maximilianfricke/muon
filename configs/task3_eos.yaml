@@ -1,4 +1,4 @@
-# Task 3(A): Edge-of-Stability Configuration (multi-optimizer runs)
+# Task 3: Edge-of-Stability & Directional Curvature (A + B)
 
 experiment:
   name: "task3_eos"
@@ -9,7 +9,7 @@ dataset:
   name: "mnist"
   root: "./data"
   full_batch: true
-  train_subset_size: 10000   # optional speedup
+  train_subset_size: 10000   # optional speedup for Hessian ops
 
 model:
   type: "mlp"
@@ -24,22 +24,27 @@ training:
   loss_fn: "cross_entropy"
 
 eos_analysis:
-  track_frequency: 5
+  track_frequency: 1
 
 hessian:
   max_iter: 50
   tol: 1e-6
 
+curvature_analysis:
+  enabled: true
+  track_frequency: 1         # usually same as eos_analysis
+  num_probe_vecs: 8          
+  # probe_subset_size: 2048  # uncomment to speed up curvature
+  compute_preconditioned: true  # logged, but true H_eff not yet implemented
+
 logging:
   wandb:
     enabled: true
     project: "muon"
-    # entity: "your_wandb_username_or_team"  # optional
 
 output:
   save_dir: "./results/task3"
 
-# Run 3 separate W&B runs (one per optimizer)
 optimizers:
   gd:
     type: "gd"
@@ -57,10 +62,10 @@ optimizers:
   muon:
     type: "muon"
     config:
-      lr: 0.02
+      lr: 0.005
       momentum: 0.95
       ns_depth: 5
-      use_rms: true
+      use_rms: false
       use_orthogonalization: true
       weight_decay: 0.0
       adamw_lr: 0.001

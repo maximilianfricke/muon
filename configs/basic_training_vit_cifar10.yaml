@@ -3,13 +3,13 @@
 experiment:
   name: "basic_training_vit_cifar10"
   seed: 42
-  device: "auto"  # "auto", "cuda", "mps", or "cpu"
+  device: "auto"  
 
 dataset:
   name: "cifar10"
   root: "./data"
-  full_batch: true  # Use full dataset in one batch
-  train_subset_size: 2000  # Use only 10K samples for training (same subset across all runs for comparability)
+  full_batch: true  
+  train_subset_size: 2000  
 
 model:
   type: "tiny_vit"
@@ -24,7 +24,7 @@ model:
     dropout: 0.0
 
 optimizer:
-  type: "muon"  # "muon", "sgd", or "adamw"
+  type: "muon" 
   config:
     lr: 0.02
     momentum: 0.95
@@ -32,7 +32,7 @@ optimizer:
     use_rms: false
     use_orthogonalization: true
     weight_decay: 0.0
-    adamw_lr: 0.001  # For output layers when using Muon
+    adamw_lr: 0.001  
 
 training:
   num_epochs: 50
@@ -40,7 +40,6 @@ training:
 
 logging:
   wandb:
-    enabled: true
-    # Project name is always "muon" - set in code for consistency
+    enabled: false
   save_dir: "./results/basic_training"
-  save_frequency: 10  # Save checkpoint every N epochs
+  save_frequency: 10  

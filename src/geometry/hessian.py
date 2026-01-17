@@ -1,12 +1,11 @@
 """
 Utilities for computing Hessian eigenvalues, particularly λ_max.
-Uses Curvlinops if available, otherwise falls back to pure PyTorch implementation.
+Uses Curvlinops if available, otherwise pure PyTorch implementation.
 """
 
 import torch
 from typing import Optional, Callable
 
-# Try to import curvlinops, but make it optional
 try:
     from curvlinops import HessianLinearOperator
     HAS_CURVLINOPS = True
@@ -23,14 +22,12 @@ def hessian_vector_product_pytorch(
 ) -> torch.Tensor:
     """
     Compute Hessian-vector product Hv using pure PyTorch autograd.
-    
     Args:
         model: PyTorch model
         loss_fn: Loss function
         data: Input data
         targets: Target labels
         vector: Vector to multiply with Hessian (flattened parameter vector)
-        
     Returns:
         Hessian-vector product Hv (flattened)
     """
@@ -79,9 +76,6 @@ def compute_lambda_max(
 ) -> float:
     """
     Compute the largest Hessian eigenvalue (λ_max) using power iteration.
-    
-    Uses Curvlinops if available, otherwise falls back to pure PyTorch implementation.
-    
     Args:
         model: PyTorch model
         loss_fn: Loss function
@@ -90,7 +84,6 @@ def compute_lambda_max(
         max_iter: Maximum number of power iteration steps
         tol: Convergence tolerance
         device: Device to perform computation on
-        
     Returns:
         Largest Hessian eigenvalue (λ_max)
     """
@@ -101,22 +94,17 @@ def compute_lambda_max(
     data = data.to(device)
     targets = targets.to(device)
     
-    # Get number of parameters
     n_params = sum(p.numel() for p in model.parameters())
     
-    # Initialize random vector
     v = torch.randn(n_params, device=device)
     v = v / v.norm()
     
     lambda_max = None
-    
-    # Ensure tol is a float
     tol = float(tol)
     
     for i in range(max_iter):
         # Compute Hv
         if HAS_CURVLINOPS:
-            # Use curvlinops if available
             hessian_op = HessianLinearOperator(
                 model,
                 loss_fn,
@@ -125,7 +113,6 @@ def compute_lambda_max(
             Hv = hessian_op @ v.cpu().numpy()
             Hv = torch.tensor(Hv, device=device, dtype=v.dtype)
         else:
-            # Fallback to pure PyTorch
             Hv = hessian_vector_product_pytorch(model, loss_fn, data, targets, v)
         
         # Estimate eigenvalue: λ ≈ v^T H v
@@ -157,16 +144,13 @@ def hessian_vector_product(
 ) -> torch.Tensor:
     """
     Compute Hessian-vector product Hv efficiently.
-    
     Uses Curvlinops if available, otherwise falls back to pure PyTorch implementation.
-    
     Args:
         model: PyTorch model
         loss_fn: Loss function
         data: Input data
         targets: Target labels
-        vector: Vector to multiply with Hessian (flattened parameter vector)
-        
+        vector: Vector to multiply with Hessian (flattened parameter vector)  
     Returns:
         Hessian-vector product Hv (flattened)
     """
@@ -181,7 +165,6 @@ def hessian_vector_product(
         vector = torch.tensor(vector, device=device, dtype=torch.float32)
     
     if HAS_CURVLINOPS:
-        # Use curvlinops if available
         hessian_op = HessianLinearOperator(
             model,
             loss_fn,
@@ -195,7 +178,6 @@ def hessian_vector_product(
         Hv = hessian_op @ vector_np
         Hv = torch.tensor(Hv, device=device, dtype=vector.dtype if isinstance(vector, torch.Tensor) else torch.float32)
     else:
-        # Fallback to pure PyTorch
         Hv = hessian_vector_product_pytorch(model, loss_fn, data, targets, vector)
     
     return Hv

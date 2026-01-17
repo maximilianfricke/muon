@@ -12,52 +12,29 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Dict
+import copy
 
 
 def load_config(config_path: str) -> Dict:
-    """
-    Load experiment configuration from YAML file.
-    
-    Args:
-        config_path: Path to configuration file
-        
-    Returns:
-        Configuration dictionary
-    """
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     return config
 
 
 def run_training_with_optimizer(base_config: Dict, optimizer_type: str, optimizer_config: Dict):
-    """
-    Run training with a specific optimizer by calling basic_training.py.
-    
-    Args:
-        base_config: Base configuration
-        optimizer_type: Optimizer type ("muon", "sgd", "adamw")
-        optimizer_config: Optimizer-specific configuration
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    # Create a temporary config for this optimizer
-    config = base_config.copy()
+    config = copy.deepcopy(base_config)
     config["optimizer"] = {
         "type": optimizer_type,
         "config": optimizer_config
     }
     
-    # Update experiment name to include optimizer
-    original_name = config["experiment"]["name"]
-    config["experiment"]["name"] = f"{original_name}_{optimizer_type}"
+    base_name = base_config["experiment"]["name"]
+    config["experiment"]["name"] = base_name
     
-    # Save temporary config
     temp_config_path = Path(f"configs/temp_task1_{optimizer_type}.yaml")
     with open(temp_config_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-    
-    # Run basic_training.py with this config
+
     print(f"\n{'='*60}")
     print(f"Running training with {optimizer_type.upper()} optimizer")
     print(f"{'='*60}\n")
@@ -72,7 +49,6 @@ def run_training_with_optimizer(base_config: Dict, optimizer_type: str, optimize
         print(f"Error running training with {optimizer_type}: {e}")
         success = False
     finally:
-        # Clean up temp config
         if temp_config_path.exists():
             temp_config_path.unlink()
     
@@ -81,7 +57,6 @@ def run_training_with_optimizer(base_config: Dict, optimizer_type: str, optimize
 
 def main():
     """
-    Main entry point for Task 1 experiment.
     Runs training with Muon, SGD, and AdamW, tracking λ_max for each.
     """
     parser = argparse.ArgumentParser(description="Task 1: Sharpness Tracking")
@@ -93,13 +68,10 @@ def main():
     )
     args = parser.parse_args()
     
-    # Load config
     config = load_config(args.config)
     
-    # Get optimizers to test from config
     optimizers_config = config.get("optimizers", {})
     
-    # Default optimizers if not specified
     if not optimizers_config:
         optimizers_config = {
             "muon": {
@@ -130,13 +102,11 @@ def main():
     print(f"Optimizers to test: {', '.join(optimizers_config.keys())}")
     print("="*60)
     
-    # Run training for each optimizer
     results = {}
     for opt_name, opt_config in optimizers_config.items():
         success = run_training_with_optimizer(config, opt_name, opt_config)
         results[opt_name] = "success" if success else "failed"
     
-    # Summary
     print("\n" + "="*60)
     print("Task 1 Summary")
     print("="*60)

@@ -52,7 +52,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
     ortho_list = abl.get("use_orthogonalization", [True, False])
     wd_list = abl.get("weight_decay", [0.0, 0.01])
 
-    # Optional preset variants
     preset_variants = abl.get("variants", None)
 
     def preset_to_flags(name: str) -> Dict[str, Any]:
@@ -62,10 +61,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
             return {"use_rms": True, "use_orthogonalization": False}
         if name == "no_rms":
             return {"use_rms": False, "use_orthogonalization": True}
-        if name == "ortho_only":
-            return {"use_rms": False, "use_orthogonalization": True}
-        if name == "rms_only":
-            return {"use_rms": True, "use_orthogonalization": False}
         if name == "none":
             return {"use_rms": False, "use_orthogonalization": False}
         raise ValueError(f"Unknown preset variant: {name}")
@@ -73,7 +68,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
     variants: List[Tuple[str, Dict[str, Any]]] = []
 
     if preset_variants is not None:
-        # Preset mode: variants x ns_depth x weight_decay
         for preset_name in preset_variants:
             flags = preset_to_flags(preset_name)
             for ns in ns_list:
@@ -83,7 +77,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
                     muon_cfg["ns_depth"] = int(ns)
                     muon_cfg["weight_decay"] = float(wd)
 
-                    # ns_depth == 0 => orthogonalization must be off
                     if int(ns) == 0:
                         muon_cfg["use_orthogonalization"] = False
 
@@ -91,7 +84,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
                     suffix = f"{preset_name}_ns{ns}_wd{wd_str}"
                     variants.append((suffix, muon_cfg))
     else:
-        # Grid mode: ns_depth x rms x ortho x weight_decay
         for ns in ns_list:
             for use_rms in rms_list:
                 for use_ortho in ortho_list:
@@ -112,9 +104,6 @@ def make_variants(cfg: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
 
 
 def run_training_with_muon_variant(base_config: Dict[str, Any], run_suffix: str, muon_config: Dict[str, Any]) -> bool:
-   
-    #Run basic_training.py with optimizer fixed to Muon and given config
-    
     config = copy.deepcopy(base_config)
 
     config["optimizer"] = {
@@ -132,6 +121,8 @@ def run_training_with_muon_variant(base_config: Dict[str, Any], run_suffix: str,
     print(f"Running Task 2 variant: {run_suffix}")
     print(f"Muon config: {muon_config}")
     print(f"{'='*80}\n")
+
+    print("Tracking: lambda_max + lambda_grad + lambda_muon + lambda_eff_ratio (in basic_training.py)")
 
     try:
         subprocess.run(
