@@ -42,7 +42,11 @@ data/
 *.ckpt
 
 # Results
-results/
+results/basic_training/
+results/task1/
+results/task2/
+results/task2_new/
+results/task3/
 wandb/
 *.log
 
