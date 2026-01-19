@@ -22,27 +22,6 @@ The experiments are organized into three main tasks:
 
 All experiments are run in **full-batch mode** to make curvature estimation reliable.
 
-### Common setup
-
-We optimize parameters θ by minimizing the empirical loss:
-
-\[
-\mathcal{L}(\theta) \;=\; \frac{1}{N}\sum_{i=1}^{N}\ell(f_\theta(x_i), y_i)
-\]
-
-For a given epoch \(t\), define the (full-batch) Hessian of the loss:
-
-\[
-H_t \;=\; \nabla^2_\theta \mathcal{L}(\theta_t)
-\]
-
-We track **sharpness** via the largest eigenvalue:
-
-\[
-\lambda_{\max}(H_t)
-\]
-
-In code, this is computed by **power iteration** using Hessian-vector products (HVPs), either via `curvlinops` or pure PyTorch autograd (`src/geometry/hessian.py`).
 
 ## Quick Setup
 
