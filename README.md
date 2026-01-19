@@ -1,5 +1,7 @@
 # Muon Optimizer Research Project: Sharpness, Curvature and Edge-of-Stability Analysis 
 
+**Code for the ETH Deep Learning course project paper on "Disentangling Sharpness and Update Geometry in the Muon Optimizer: Ablations, Stability and Variational Extensions" by Fricke, Ovcharova and Laffranchi.**
+
 This repository contains a structured experimental study of **optimization geometry and stability**
 for deep learning optimizers, with a particular focus on the **Muon optimizer**.
 The project investigates how curvature, sharpness, and Edge-of-Stability (EoS) behavior
